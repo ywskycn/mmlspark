@@ -4,7 +4,7 @@
 package com.microsoft.ml.spark
 
 import java.io._
-import java.net.{ServerSocket, Socket}
+import java.net.{InetAddress, ServerSocket, Socket}
 import java.util.concurrent.Executors
 
 import com.microsoft.ml.lightgbm._
@@ -13,6 +13,7 @@ import org.apache.spark.ml.PipelineModel
 import org.apache.spark.ml.linalg.SparseVector
 import org.apache.spark.sql.{DataFrame, Dataset, Row}
 import org.slf4j.Logger
+import org.spark_project.guava.net.InetAddresses
 
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration.{Duration, SECONDS}
@@ -124,7 +125,7 @@ object LightGBMUtils {
   private def getDriverHost(dataset: Dataset[_]): String = {
     val blockManager = BlockManagerUtils.getBlockManager(dataset)
     blockManager.master.getMemoryStatus.toList.flatMap({ case (blockManagerId, _) =>
-      if (blockManagerId.executorId == "driver") Some(blockManagerId.host)
+      if (blockManagerId.executorId == "driver") Some(getHostToIP(blockManagerId.host))
       else None
     }).head
   }
@@ -138,7 +139,7 @@ object LightGBMUtils {
     val blockManager = BlockManagerUtils.getBlockManager(dataset)
     blockManager.master.getMemoryStatus.toList.flatMap({ case (blockManagerId, _) =>
       if (blockManagerId.executorId == "driver") None
-      else Some((blockManagerId.executorId.toInt, blockManagerId.host))
+      else Some((blockManagerId.executorId.toInt, getHostToIP(blockManagerId.host)))
     }).toArray
   }
 
@@ -163,6 +164,17 @@ object LightGBMUtils {
       }
     }
   }
+
+  /**
+    * Converts a host name to an IP address.
+    * @param hostname the host name
+    * @return
+    */
+  def getHostToIP(hostname: String): String = {
+    if (InetAddresses.isInetAddress(hostname))
+      hostname
+    else
+      InetAddress.getByName(hostname).getHostAddress
 
   /** Converts a host,id pair to the lightGBM host:port format.
     * @param hostAndId The host,id.
@@ -222,7 +234,7 @@ object LightGBMUtils {
     import processedData.sparkSession.implicits._
     val blockManager = BlockManagerUtils.getBlockManager(processedData)
     val host = blockManager.master.getMemoryStatus.flatMap({ case (blockManagerId, _) =>
-      Some(blockManagerId.host)
+      Some(getHostToIP(blockManagerId.host))
     }).head
     val nodes =
       processedData.mapPartitions((_: Iterator[Row]) => {
